@@ -1,0 +1,196 @@
+---
+title: "gender_discrimination_analysis"
+format: html
+editor: visual
+---
+
+## **Gender Discrimination in Bank Salaries**
+
+In the 1970’s, Harris Trust was sued for gender discrimination in the salaries it paid its employees. One approach to addressing this issue was to examine the starting salaries of all skilled, entry-level clerical workers between 1965 and 1975. The following variables, which can be accessed via `robackdata::banksalary`, were collected for each worker:
+
+-   `bsal` = beginning salary (annual salary at time of hire)
+
+-   `sal77` = annual salary in 1977
+
+-   `sex` = MALE or FEMALE
+
+-   `senior` = months since hired
+
+-   `age` = age in months
+
+-   `educ` = years of education
+
+-   `exper` = months of prior work experience
+
+Creating an indicator variable based on `sex` could be helpful.
+
+## Importing Data
+
+```{r}
+library(tidyverse)
+df <- robackdata::banksalary
+head(df)
+```
+
+## Exploratory Data Analysis
+
+Observational units: Clerical workers between 1965 and 1975
+
+Response: beginning salary
+
+Explanatory: sex (main), and the rest of the categories (senior, age, educ, exper)
+
+```{r}
+df |>
+  group_by(sex) |>
+  summarize(
+    mean = mean(bsal),
+    .groups = "drop"
+  ) |>
+  mutate (
+    percentage = (mean / sum(mean)) * 100
+  )
+```
+
+The mean starting salary of male workers (\$5957) was 16% higher than the mean starting salary of female workers (\$5139). Does this enough evidence to conclude gender discrimination exists? Probably not. Comparing raw means doesn't mean anything. You also need to see other factors for example education. What if all women have lower education than men?
+
+We can visualize the distribution of beginning salaries (`bsal`) by other factors such as age, experience, and education to explore their relationships.
+
+```{r}
+ggplot(df, aes(x = age, y = bsal)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+ggplot(df, aes(x = exper, y = bsal)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+ggplot(df, aes(x = educ, y = bsal)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+From the plot above, we can see that there is almost no linear relationship between age and beginning salary, as the regression line is flat. There is a slight positive linear relationship of experience and beginning salary, showing that more experience tends to correspond with slightly higher salaries. Education shows the strongest positive relationship with beginning salary, as the slope of the line is noticeably steeper compared to age and experience.
+
+Let us make some more exploratory plots and summary statistics to see if there are any explanatory variables (including sex) that are closely related to each other.
+
+-   We might also need to consider the factor seniority control, where a case could be, a woman got the job in the year 1960. A man got the job in the year 1970. But in the year 1970, starting salary at that year is higher because of inflation and other factors. So men could get a higher salary not because of discrimination but because of seniority.
+
+```{r}
+ggplot(df, aes(x = age, y = exper)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+ggplot(df, aes(x = educ, y = exper)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+boxplot(senior ~ sex, data = df,
+        main = "Seniority by Sex",
+        ylab = "Months since hired", xlab = "Sex")
+
+df$sex_bin <- ifelse(df$sex == "MALE", 1, 0)
+cor(df$age, df$exper)
+cor(df$educ, df$exper)
+cor(df$sex_bin, df$senior)
+```
+
+From the plots and correlation, we can see that experience and age has a strong positive linear relationship. As age increases, experience also increases, where older workers have more experience. The relationship between education and experience is slightly negative, showing that employees with higher education levels tend to have a bit less experience, likely because they entered the job market later after spending more time in school. However, since the line is only slightly negative, we can also conclude that people with very low education levels generally have less experience as well. Seniority by sex shows very small differences, both sexes have been employed for about the same length of time. Based on the correlation numbers, we can see that the only significant number belongs to age and experience (80%).
+
+## Model Building
+
+Let us now fit a simple linear regression model with starting salary as the response and experience as the sole explanatory variable.
+
+```{r}
+model1 <- lm(bsal ~ exper, data = df)
+summary(model1)
+```
+
+When a person has 0 months of experience, his expected salary is \$5289. For an additional unit of experience, the salary increases by \$1.30, but this effect is not statistically significant (high p-value). We also have a low R-squared of 0.0278, meaning only 2.78% of the variation in salary is explained by experience, very low explanatory power.
+
+When performing a linear model, there are four key assumptions that needs to be met.
+
+**LINE**:
+
+**L** = Linearity, the relationship between the independent and dependent variables is linear. Meaning there should be no strong curve patterns in residual.
+
+**I** = Independence, he observations (and their errors) are independent of each other. This means one data point’s value doesn’t affect another’s (no autocorrelation).
+
+**N** = Normality, the residuals (errors) of the model are normally distributed. This helps ensure valid hypothesis testing and confidence intervals.
+
+**E** = Equal Variance, the residuals should have constant variance across all levels of the predictor variables. This means the spread of residuals stays roughly the same, not fanning out or shrinking as x changes.
+
+Let us check if our first model met all the linear least squares regression assumptions.
+
+```{r}
+par(mfrow = c(2,2))
+plot(model1, ask = FALSE)
+```
+
+We can see from the plots above that:
+
+Linearity, the Residuals vs Fitted plot shows that the red line are no weird curves. So we can say that the linearity assumption is mostly okay.
+
+Independence, I would assume that each observation is independent to another.
+
+Normality, from the Q-Q Residuals plot, we can see that most points (residuals) falls very close to the diagonal line. So we can say that the residuals are normal.
+
+Equal Variance, from the Scale-Location plot, we can see that the line is almost flat and the spread is fairly constant across fitted values.
+
+Let us now plot a model with 4 confounding variables (`senior`, `educ`, `exper`, and `age`) to see if this model is better than our first model.
+
+```{r}
+model2 <- lm(bsal ~ exper + educ + age + senior, data = df)
+summary(model1)
+summary(model2)
+anova(model1, model2)
+```
+
+From both models above we can see that model 2 has a higher R-squared value of 31% meaning that it explains more of the variation in salaries compared to model 1 (2.8%). Although some variables such as age is not statistically significant, Model 2 provides a better and more meaningful explanation of salary differences among employees.
+
+Let us now generate a plot to examine a potential age-by-experience interaction.
+
+```{r}
+median_age <- median(df$age)
+df$age_group <- ifelse(df$age <= median_age, "younger", "older")
+ggplot(df, aes(x = exper, y = bsal, color = age_group)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+From the plot above, we can see that for the younger employees, they have a steeper positive slope. This means that experience strongly increases beginning salary among younger workers. For older employees, the line is almost flat (slightly positive) where it shows that experience has little or no impact among older workers. Because the lines are not parralel we can say that the effect of experience on salary depends on age group.
+
+Let us make our final model which contain terms for seniority, education, and experience in addition to sex.
+
+```{r}
+model3 <- lm(bsal ~ sex_bin + educ + exper + senior, data = df)
+summary(model3)
+confint(model3)
+par(mfrow = c(2, 2))  
+plot(model3)
+```
+
+From the summary above, we can see that Model 3 provides the strongest results, with all variables showing statistically significant p-values. Model 3 also has the highest 𝑅 2 R 2 value (51%), indicating that it explains about half of the variation in beginning salaries, an improvement over Models 1 and 2.
+
+Although education, experience, and seniority all have significant effects on beginning salary, sex also remains a significant predictor. This indicates that even after accounting for these other factors, there is still a systematic difference in salaries between men and women, suggesting evidence of gender-based salary disparity.
+
+The 95% confidence interval for the gender effect ranges from \$488 to \$957, meaning that, after controlling for education, experience, and seniority, men are estimated to have starting salaries between \$488 and \$957 higher than women. Because this interval does not include zero, it suggests a statistically significant gender-based salary difference.
+
+From the plot, we can see that the residual line shows no clear curvature, the points are evenly scattered around the fitted values, and the normality assumption of the residuals appears to be met.
+
+```{r}
+hist(df$bsal)
+hist(log(df$bsal))
+```
+
+From the plot above we can see that it is better to log the data to reduce skewness. When we log the response variable and exponent it right after, the results will be in terms of percentage (relative) changes rather than absolute changes..
+
+```{r}
+model_log <- lm(log(bsal) ~ sex_bin + educ + exper + senior, data = df)
+summary(model_log)
+(exp(0.1295564) - 1) * 100
+```
+
+## Conclusion
+
+We can see that males employees are paid 13% more than female employees.
